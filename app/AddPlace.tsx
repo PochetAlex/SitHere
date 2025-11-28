@@ -1,10 +1,10 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import {
+    Alert,
     KeyboardAvoidingView,
     Platform,
     Platform as RNPlatform,
-    SafeAreaView,
     ScrollView,
     StatusBar,
     StyleSheet,
@@ -14,6 +14,8 @@ import {
     useWindowDimensions,
     View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { supabase } from '../lib/supabase';
 
 const AddPlace = () => {
     const router = useRouter();
@@ -33,10 +35,45 @@ const AddPlace = () => {
     const lngParam = params?.lng;
     const prefilledCoords = latParam && lngParam ? { latitude: parseFloat(latParam as string), longitude: parseFloat(lngParam as string) } : null;
 
-    const handlePublish = () => {
-        // simple placeholder action: log and go back
-        console.log({ name, seats, covered, comment, rating, coords: prefilledCoords });
-        router.back();
+    const [publishing, setPublishing] = useState(false);
+
+    const handlePublish = async () => {
+        if (!name.trim()) {
+            Alert.alert('Validation', 'Le nom du lieu est requis.');
+            return;
+        }
+
+        setPublishing(true);
+        try {
+            // get current user id
+            const { data: userData } = await supabase.auth.getUser();
+            const user = (userData as any)?.user ?? null;
+            const userId = user?.id ?? null;
+
+            const payload: any = {
+                name: name.trim(),
+                seats: seats ? parseInt(seats, 10) : null,
+                covered: !!covered,
+                description: comment || null,
+                rating: rating || null,
+                latitude: prefilledCoords?.latitude ?? null,
+                longitude: prefilledCoords?.longitude ?? null,
+                user_id: userId,
+            };
+
+            const { data, error } = await supabase.from('places').insert([payload]).select().single();
+            if (error) {
+                console.warn('Insert place error', error);
+                Alert.alert('Erreur', error.message || 'Impossible d\'enregistrer le lieu');
+            } else {
+                Alert.alert('Succès', 'Lieu enregistré', [{ text: 'OK', onPress: () => router.push('/Homepage') }]);
+            }
+        } catch (e: any) {
+            console.warn('Publish exception', e);
+            Alert.alert('Erreur', e?.message || String(e));
+        } finally {
+            setPublishing(false);
+        }
     };
 
     return (

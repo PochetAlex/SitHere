@@ -16,3 +16,7 @@ This is an [Expo](https://expo.dev) project created with [`create-expo-app`](htt
    npx expo start
    ```
 
+![alt text](wireframe.png)
+
+![alt text](schema_architecture.png)
+

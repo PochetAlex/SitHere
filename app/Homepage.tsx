@@ -1,8 +1,9 @@
 import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
-import { Platform, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View, useWindowDimensions } from 'react-native';
+import { Alert, Image, Platform, ScrollView, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
+import { supabase } from '../lib/supabase';
 
 
 export default function Homepage() {
@@ -23,13 +24,39 @@ export default function Homepage() {
   const BUTTON_SIZE = Math.round(Math.min(width, height) * 0.18); // button size ~18% of smaller screen dim
   const BUTTON_TEXT_SIZE = Math.round(BUTTON_SIZE * 0.18);
   const DEFAULT_ZOOM = 18;
+  const PANEL_HEIGHT = Math.round(height * 0.5);
+  const PANEL_MAP_HEIGHT = Math.round(PANEL_HEIGHT * 0.48); // fixed pixel height for image area
   const [showPanel, setShowPanel] = useState(false);
   const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const [selectedLocation, setSelectedLocation] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
   
   const mapRef = useRef<any>(null);
 
   useEffect(() => {
+    let mountedAuth = true;
+    // check current auth session and subscribe to auth state changes
+    (async () => {
+      try {
+        const { data } = await supabase.auth.getSession();
+        const user = (data as any)?.session?.user ?? null;
+        if (mountedAuth) setIsAuthenticated(!!user);
+      } catch (e) {
+        console.warn('Failed to check supabase session', e);
+      }
+    })();
+
+    const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
+      try {
+        setIsAuthenticated(!!session?.user);
+      } catch (e) { /* ignore */ }
+    });
+
+    // cleanup listener on unmount
+    const cleanupAuth = () => {
+      try { listener.subscription.unsubscribe(); } catch (e) { /* ignore */ }
+      mountedAuth = false;
+    };
     let mounted = true;
     (async () => {
       try {
@@ -105,6 +132,7 @@ export default function Homepage() {
       } catch (e) {
         // ignore
       }
+      cleanupAuth();
     };
   }, []);
 
@@ -219,9 +247,18 @@ export default function Homepage() {
         <TouchableOpacity
           style={[
             styles.cornerButton,
-            { bottom: BOTTOM_BUTTON_BOTTOM, right: HORIZONTAL_MARGIN, width: BUTTON_SIZE, height: BUTTON_SIZE, borderRadius: BUTTON_SIZE / 2 },
+            { bottom: BOTTOM_BUTTON_BOTTOM, right: HORIZONTAL_MARGIN, width: BUTTON_SIZE, height: BUTTON_SIZE, borderRadius: BUTTON_SIZE / 2, opacity: isAuthenticated ? 1 : 0.6 },
           ]}
+          disabled={!isAuthenticated}
           onPress={() => {
+            if (!isAuthenticated) {
+              Alert.alert('Connexion requise', 'Veuillez vous connecter pour ajouter un lieu.', [
+                { text: 'Annuler', style: 'cancel' },
+                { text: 'Se connecter', onPress: () => router.push('/Auth') },
+              ]);
+              return;
+            }
+
             if (selectedLocation) {
               // pass coordinates as query params so AddPlace can prefill
               router.push(`/AddPlace?lat=${selectedLocation.latitude}&lng=${selectedLocation.longitude}`);
@@ -248,14 +285,16 @@ export default function Homepage() {
                 <Text style={styles.panelCloseText}>Fermer</Text>
               </TouchableOpacity>
             </View>
-            <View style={styles.panelMap}>
-              <MapView
-                provider={PROVIDER_GOOGLE}
-                initialCamera={{ center: { latitude: userLocation ? userLocation.latitude : 50.6330, longitude: userLocation ? userLocation.longitude : 3.0630 }, zoom: DEFAULT_ZOOM, heading: 0, pitch: 0 }}
-                style={{ flex: 1, borderTopLeftRadius: 12, borderTopRightRadius: 12, overflow: 'hidden' }}
-              />
-            </View>
-            <View style={styles.panelContent}>
+            
+            <ScrollView style={[styles.panelContent, { flex: 1 }]} contentContainerStyle={{ padding: 12 }} keyboardShouldPersistTaps="handled">
+              <View style={[styles.panelMap, { height: PANEL_MAP_HEIGHT }]}>
+                {/* Placeholder image for the selected place (no image available yet) */}
+                <Image
+                  source={require('../assets/images/icon.png')}
+                  style={{ width: '100%', height: '100%', borderTopLeftRadius: 12, borderTopRightRadius: 12 }}
+                  resizeMode="cover"
+                />
+              </View>
               <Text style={styles.panelTitle}>Nom du lieu</Text>
               <Text style={styles.panelValue}>Place Example</Text>
 
@@ -273,7 +312,7 @@ export default function Homepage() {
 
               <Text style={[styles.panelLabel, { marginTop: 8 }]}>Description</Text>
               <Text style={[styles.panelValue, { marginBottom: 8 }]}>Nice spot near the station</Text>
-            </View>
+            </ScrollView>
           </View>
         )}
       </View>
