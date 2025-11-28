@@ -8,6 +8,10 @@
     "scheme": "helloworld",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
+    "extra": {
+      "SUPABASE_URL": "https://zhkrdbvqiuejkqwgmyce.supabase.co",
+      "SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inpoa3JkYnZxaXVlamtxd2dteWNlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjMxMjI4NTQsImV4cCI6MjA3ODY5ODg1NH0.zbpgDYiKWsymE6-NFLp0EgAcHURPMEcjw8OyJTT_JRQ"
+    },
     "ios": {
       "supportsTablet": true
     },

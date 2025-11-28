@@ -1,7 +1,9 @@
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import 'react-native-get-random-values';
 import 'react-native-reanimated';
+import 'react-native-url-polyfill/auto';
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
@@ -19,6 +21,7 @@ export default function RootLayout() {
         <Stack.Screen name="AddPlace" options={{ presentation: 'modal', title: 'Add Spot', headerShown: false }} />
         <Stack.Screen name="PlaceInfo" options={{ presentation: 'modal', title: 'Spot Info', headerShown: false }} />
         <Stack.Screen name="Settings" options={{ presentation: 'modal', title: 'Settings', headerShown: false }} />
+        <Stack.Screen name="Auth" options={{ presentation: 'modal', title: 'Sign In', headerShown: false }} />
         <Stack.Screen name="Score" options={{ presentation: 'modal', title: 'Score', headerShown: false }} />
         <Stack.Screen name="History" options={{ presentation: 'modal', title: 'History', headerShown: false }} />
       </Stack>

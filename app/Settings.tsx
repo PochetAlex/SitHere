@@ -1,8 +1,9 @@
 import { useRouter } from 'expo-router';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
+    Alert,
+    Image,
     Platform,
-    SafeAreaView,
     StatusBar,
     StyleSheet,
     Text,
@@ -11,6 +12,11 @@ import {
     useWindowDimensions,
     View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { supabase } from '../lib/supabase';
+
+// Default signed URL for the avatar fallback (provided by user)
+const DEFAULT_AVATAR_URL = 'https://zhkrdbvqiuejkqwgmyce.supabase.co/storage/v1/object/sign/avatar/default.png?token=eyJraWQiOiJzdG9yYWdlLXVybC1zaWduaW5nLWtleV9mMDI4N2ExNC05NjE2LTRkNDEtOTg4Zi1hOTBjMmUxYzQ4ZjgiLCJhbGciOiJIUzI1NiJ9.eyJ1cmwiOiJhdmF0YXIvZGVmYXVsdC5wbmciLCJpYXQiOjE3NjQzNDgwNjksImV4cCI6MTc5NTg4NDA2OX0.YtwL_Vu75v5VkZYZKck7Qi9fLXdzuX7hDhSOnPGAPG8';
 
 const Settings = () => {
     const router = useRouter();
@@ -19,7 +25,56 @@ const Settings = () => {
         ? StatusBar.currentHeight ?? Math.round(height * 0.03)
         : Math.round(height * 0.045);
 
-    const [name, setName] = useState('Name');
+    const [name, setName] = useState('');
+    const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+    const [isAuthenticated, setIsAuthenticated] = useState(false);
+
+    useEffect(() => {
+        let mounted = true;
+        const loadUser = async () => {
+            try {
+                const { data } = await supabase.auth.getUser();
+                const user = (data as any)?.user ?? null;
+                if (user && mounted) {
+                    const meta = (user.user_metadata ?? {}) as any;
+                    const uname = meta.username ?? meta.name ?? (user.email ? String(user.email).split('@')[0] : '');
+                    const aurl = meta.avatar_url ?? null;
+                    if (uname) setName(uname);
+                    setIsAuthenticated(true);
+                    if (aurl) {
+                        setAvatarUrl(aurl);
+                        return;
+                    }
+
+                    // Use the provided signed default avatar URL as fallback.
+                    setAvatarUrl(DEFAULT_AVATAR_URL);
+                }
+            } catch (e) {
+                console.warn('Failed to load supabase user in Settings', e);
+            }
+        };
+        loadUser();
+        return () => { mounted = false; };
+    }, []);
+
+    const handleSignOut = () => {
+        Alert.alert('Déconnexion', 'Voulez-vous vous déconnecter ?', [
+            { text: 'Annuler', style: 'cancel' },
+            {
+                text: 'Se déconnecter', style: 'destructive', onPress: async () => {
+                    try {
+                        await supabase.auth.signOut();
+                    } catch (e) {
+                        console.warn('Sign out error', e);
+                    }
+                    setName('');
+                    setAvatarUrl(null);
+                    setIsAuthenticated(false);
+                    router.push('/Homepage');
+                }
+            }
+        ]);
+    };
 
     return (
         <SafeAreaView style={styles.screen}>
@@ -30,20 +85,32 @@ const Settings = () => {
 
                 <View style={styles.content}>
                     <View style={styles.avatarWrap}>
-                        <View style={styles.avatar} />
+                        <Image
+                            source={avatarUrl ? { uri: avatarUrl } : require('../assets/images/icon.png')}
+                            style={styles.avatar}
+                        />
                     </View>
 
                     <Text style={styles.pointsLabel}>POINTS</Text>
-                    <TextInput value={name} onChangeText={setName} style={styles.nameInput} />
+                    <TextInput value={name} onChangeText={setName} style={styles.nameInput} placeholder="Nom" editable={false} />
 
                     <TouchableOpacity style={styles.menuItem} onPress={() => router.push('/Score')}>
                         <Text style={styles.menuIcon}>💯</Text>
                         <Text style={styles.menuText}>Score</Text>
                     </TouchableOpacity>
 
-                    <TouchableOpacity style={styles.menuItem} onPress={() => console.log('logout')}>
+                    <TouchableOpacity
+                        style={styles.menuItem}
+                        onPress={() => {
+                            if (isAuthenticated) {
+                                handleSignOut();
+                            } else {
+                                router.push('/Auth');
+                            }
+                        }}
+                    >
                         <Text style={styles.menuIcon}>👤</Text>
-                        <Text style={styles.menuText}>Logout</Text>
+                        <Text style={styles.menuText}>{isAuthenticated ? 'Se déconnecter' : 'Se connecter'}</Text>
                     </TouchableOpacity>
                 </View>
 
