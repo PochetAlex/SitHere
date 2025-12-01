@@ -1,9 +1,12 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
     Alert,
+    FlatList,
     KeyboardAvoidingView,
+    Modal,
     Platform,
+    Pressable,
     Platform as RNPlatform,
     ScrollView,
     StatusBar,
@@ -25,10 +28,14 @@ const AddPlace = () => {
         : Math.round(height * 0.045);
 
     const [name, setName] = useState('');
-    const [seats, setSeats] = useState('');
+    const [nb_place, setnb_place] = useState('');
     const [covered, setCovered] = useState(false);
     const [comment, setComment] = useState('');
     const [rating, setRating] = useState(0); // 0 .. 5 step 0.5
+    type PlaceTypeItem = { id: string; type: string };
+    const [placeTypeId, setPlaceTypeId] = useState<string | null>(null);
+    const [placeTypes, setPlaceTypes] = useState<PlaceTypeItem[]>([]);
+    const [showTypeModal, setShowTypeModal] = useState(false);
     const params = useLocalSearchParams();
     // read optional lat/lng query params (passed from homepage when a point was selected)
     const latParam = params?.lat;
@@ -50,23 +57,65 @@ const AddPlace = () => {
             const user = (userData as any)?.user ?? null;
             const userId = user?.id ?? null;
 
-            const payload: any = {
+                const payload: any = {
                 name: name.trim(),
-                seats: seats ? parseInt(seats, 10) : null,
+                nb_place: nb_place ? parseInt(nb_place, 10) : null,
                 covered: !!covered,
                 description: comment || null,
                 rating: rating || null,
                 latitude: prefilledCoords?.latitude ?? null,
                 longitude: prefilledCoords?.longitude ?? null,
-                user_id: userId,
+                    type_id: placeTypeId ?? null,
+                created_by: userId,
             };
 
-            const { data, error } = await supabase.from('places').insert([payload]).select().single();
+            const { data: insertedPlace, error } = await supabase.from('places').insert([payload]).select().single();
             if (error) {
                 console.warn('Insert place error', error);
                 Alert.alert('Erreur', error.message || 'Impossible d\'enregistrer le lieu');
             } else {
-                Alert.alert('Succès', 'Lieu enregistré', [{ text: 'OK', onPress: () => router.push('/Homepage') }]);
+                try {
+                    // If a rating was provided, verify the trigger created a review and cleared the rating on places
+                    const placeId = (insertedPlace as any)?.id;
+                    if (placeId) {
+                        const { data: reviewsData, error: reviewsError } = await supabase
+                            .from('reviews')
+                            .select('*')
+                            .eq('place_id', placeId);
+
+                        if (reviewsError) console.warn('Failed to fetch reviews for verification', reviewsError);
+
+                        const { data: placeRow, error: placeRowError } = await supabase
+                            .from('places')
+                            .select('rating')
+                            .eq('id', placeId)
+                            .single();
+
+                        if (placeRowError) console.warn('Failed to re-fetch place for verification', placeRowError);
+
+                        const reviewCount = Array.isArray(reviewsData) ? reviewsData.length : 0;
+                        const placeRatingValue = (placeRow as any)?.rating ?? null;
+
+                        if ((rating || null) != null) {
+                            // We expected a review to be created and the place.rating to be NULL
+                            if (reviewCount === 0 || placeRatingValue !== null) {
+                                console.warn('Trigger verification failed', { reviewCount, placeRatingValue });
+                                Alert.alert('Attention', "Le lieu a été créé mais le trigger n'a peut-être pas créé la review ou n'a pas effacé le rating. Consultez la console pour plus d'informations.");
+                            } else {
+                                Alert.alert('Succès', 'Lieu enregistré et review créée automatiquement', [{ text: 'OK', onPress: () => router.push('/Homepage') }]);
+                            }
+                        } else {
+                            // No rating provided, normal insert
+                            Alert.alert('Succès', 'Lieu enregistré', [{ text: 'OK', onPress: () => router.push('/Homepage') }]);
+                        }
+                    } else {
+                        // No place id returned — fallback
+                        Alert.alert('Succès', 'Lieu enregistré', [{ text: 'OK', onPress: () => router.push('/Homepage') }]);
+                    }
+                } catch (verifyErr) {
+                    console.warn('Verification exception', verifyErr);
+                    Alert.alert('Succès', 'Lieu enregistré', [{ text: 'OK', onPress: () => router.push('/Homepage') }]);
+                }
             }
         } catch (e: any) {
             console.warn('Publish exception', e);
@@ -74,6 +123,42 @@ const AddPlace = () => {
         } finally {
             setPublishing(false);
         }
+    };
+
+    useEffect(() => {
+        let mounted = true;
+        const loadTypes = async () => {
+            try {
+                const res = await supabase.from('place_type').select('id,type');
+                // verbose logging to diagnose why no types are returned
+                console.log('loadTypes response', { res });
+                const { data, error } = res;
+                if (error) {
+                    console.warn('Failed to load place_type', error);
+                    Alert.alert('Erreur', 'Impossible de charger les types: ' + (error.message ?? String(error)));
+                    return;
+                }
+                if (!mounted) return;
+                console.log('place_type rows count:', Array.isArray(data) ? data.length : 0);
+                const types = (data as any[] || []).map(r => ({ id: String(r.id), type: String(r.type) }));
+                console.log('extracted types:', types);
+                setPlaceTypes(types);
+                if (types.length === 1) setPlaceTypeId(types[0].id);
+            } catch (e) {
+                console.warn('Error loading place_type', e);
+                Alert.alert('Erreur', 'Exception lors du chargement des types: ' + String(e));
+            }
+        };
+        loadTypes();
+        return () => { mounted = false; };
+    }, []);
+
+    const openTypePicker = () => {
+        if (!placeTypes || placeTypes.length === 0) {
+            Alert.alert('Types indisponibles', "Aucun type n'est disponible pour le moment.");
+            return;
+        }
+        setShowTypeModal(true);
     };
 
     return (
@@ -94,10 +179,10 @@ const AddPlace = () => {
                         style={styles.input}
                     />
 
-                    <Text style={styles.label}>Number of seats</Text>
+                    <Text style={styles.label}>Nombre de place</Text>
                     <TextInput
-                        value={seats}
-                        onChangeText={setSeats}
+                        value={nb_place}
+                        onChangeText={setnb_place}
                         keyboardType="numeric"
                         placeholder=""
                         style={styles.input}
@@ -111,28 +196,46 @@ const AddPlace = () => {
                             >
                                 {covered ? <Text style={styles.checkboxMark}>✓</Text> : null}
                             </TouchableOpacity>
-                            <Text style={styles.labelSmall}>Covered?</Text>
+                            <Text style={styles.labelSmall}>Couvert ?</Text>
                         </View>
                     </View>
 
-                    {/* Type selector (placeholder) */}
+                    {/* Type selector (prefilled from DB) */}
                     <View style={{ marginTop: 8 }}>
                         <Text style={styles.labelSmall}>Type:</Text>
                         <TouchableOpacity
                             style={styles.pickerBox}
-                            onPress={() => {
-                                // dropdown to be implemented later; placeholder action
-                                console.log('open type dropdown (not implemented)');
-                            }}
+                            onPress={openTypePicker}
                         >
-                            <Text style={styles.pickerText}>{'Select a type'}</Text>
+                            <Text style={styles.pickerText}>{(placeTypes.find(t => t.id === placeTypeId)?.type) ?? 'Sélectionner un type'}</Text>
                             <Text style={styles.pickerChevron}>▾</Text>
                         </TouchableOpacity>
                     </View>
 
+                    {/* Modal dropdown for types */}
+                    <Modal visible={showTypeModal} animationType="slide" transparent onRequestClose={() => setShowTypeModal(false)}>
+                        <Pressable style={styles.modalOverlay} onPress={() => setShowTypeModal(false)}>
+                            <View style={styles.modalContent}>
+                                <Text style={styles.modalTitle}>Choisir un type</Text>
+                                <FlatList
+                                    data={placeTypes}
+                                    keyExtractor={(item) => item.id}
+                                    renderItem={({ item }) => (
+                                        <TouchableOpacity style={styles.modalItem} onPress={() => { setPlaceTypeId(item.id); setShowTypeModal(false); }}>
+                                            <Text style={styles.modalItemText}>{item.type}</Text>
+                                        </TouchableOpacity>
+                                    )}
+                                />
+                                <TouchableOpacity style={styles.modalCancel} onPress={() => setShowTypeModal(false)}>
+                                    <Text style={styles.modalCancelText}>Annuler</Text>
+                                </TouchableOpacity>
+                            </View>
+                        </Pressable>
+                    </Modal>
+
                     {/* Rating (0 - 5 by 0.5) */}
                     <View style={{ marginTop: 10 }}>
-                        <Text style={[styles.label, { marginBottom: 6 }]}>Rating</Text>
+                        <Text style={[styles.label, { marginBottom: 6 }]}>Note</Text>
                         <View style={styles.ratingRow}>
                             <TouchableOpacity
                                 style={styles.ratingButton}
@@ -260,6 +363,13 @@ const styles = StyleSheet.create({
     },
     pickerText: { color: '#333' },
     pickerChevron: { color: '#666', marginLeft: 8 },
+    modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
+    modalContent: { backgroundColor: '#fff', padding: 16, borderTopLeftRadius: 12, borderTopRightRadius: 12, maxHeight: '60%' },
+    modalTitle: { fontSize: 16, fontWeight: '700', marginBottom: 8 },
+    modalItem: { paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#eee' },
+    modalItemText: { fontSize: 16 },
+    modalCancel: { marginTop: 8, paddingVertical: 12, alignItems: 'center' },
+    modalCancelText: { color: '#007AFF', fontWeight: '700' },
     ratingRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-start' },
     ratingButton: {
         width: 40,
